@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentLedger</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10); --wash:rgba(11,11,11,.04);
+  --lower:#2a78d6; --raise:#e34948; --accent:#2a78d6; --accent-ink:#ffffff;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --good-text:#006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10); --wash:rgba(255,255,255,.05);
+    --lower:#3987e5; --raise:#e66767; --accent:#3987e5; --good-text:#0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10); --wash:rgba(255,255,255,.05);
+  --lower:#3987e5; --raise:#e66767; --accent:#3987e5; --good-text:#0ca30c;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+.wrap { max-width:1240px; margin:0 auto; padding:24px 16px 64px; }
+header h1 { margin:0; font-size:22px; letter-spacing:-.01em; }
+header p { margin:4px 0 0; color:var(--ink2); max-width:70ch; }
+.layout { display:grid; grid-template-columns:320px 1fr; gap:20px; margin-top:20px; align-items:start; }
+@media (max-width:900px) { .layout { grid-template-columns:1fr; } }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; }
+.card h2 { margin:0 0 4px; font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--ink2); }
+.sub { color:var(--ink2); font-size:13px; margin:0 0 12px; }
+.stack { display:flex; flex-direction:column; gap:20px; }
+
+.samples { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+.sample { text-align:left; background:var(--surface); color:var(--ink); border:1px solid var(--border); border-radius:10px; padding:10px 12px; cursor:pointer; font:inherit; }
+.sample:hover { background:var(--wash); }
+.sample[aria-pressed="true"] { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+.sample b { display:block; font-size:14px; }
+.sample span { font-size:12.5px; color:var(--ink2); }
+details { margin:8px 0 12px; }
+summary { cursor:pointer; color:var(--ink2); font-size:13px; }
+.fields { display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; margin-top:10px; }
+.field label { display:block; font-size:11.5px; color:var(--ink2); margin-bottom:2px; }
+.field input[type=text], .field input[type=number], .field input[type=password] { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--page); color:var(--ink); font:inherit; font-size:13px; }
+.field.check { display:flex; align-items:center; gap:6px; grid-column:span 2; }
+.field.check label { margin:0; font-size:13px; color:var(--ink); }
+.run { width:100%; padding:11px; border:0; border-radius:10px; background:var(--accent); color:var(--accent-ink); font:inherit; font-weight:600; cursor:pointer; }
+.run:disabled { opacity:.55; cursor:progress; }
+.hint { font-size:12px; color:var(--muted); margin-top:6px; }
+
+.pipeline { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; align-items:stretch; }
+@media (max-width:1100px) { .pipeline { grid-template-columns:1fr; } }
+.col { display:flex; flex-direction:column; gap:10px; justify-content:center; position:relative; }
+.col-label { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.agent { border:1px solid var(--border); border-radius:10px; padding:12px; background:var(--surface); transition:border-color .2s, background .2s; }
+.agent[data-state=running] { border-color:var(--accent); background:var(--wash); }
+.agent[data-state=done] { border-color:var(--axis); }
+.agent-head { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+.agent-head b { font-size:14px; }
+.role { font-size:12px; color:var(--ink2); }
+.status { font-size:12px; color:var(--muted); white-space:nowrap; }
+.status .spin { display:inline-block; width:10px; height:10px; border:2px solid var(--axis); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-1px; margin-right:4px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.chip { display:inline-block; font-size:12px; font-weight:600; padding:1px 8px; border-radius:999px; border:1px solid var(--border); font-variant-numeric:tabular-nums; }
+.chip.lower { color:var(--lower); } .chip.raise { color:var(--raise); }
+.agent .summary { margin:8px 0 4px; font-size:13px; }
+.agent ul { margin:6px 0 0; padding:0; list-style:none; font-size:12.5px; color:var(--ink2); }
+.agent li { display:flex; gap:6px; padding:3px 0; border-top:1px solid var(--grid); }
+.agent li .d { margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.sev { width:16px; flex:none; text-align:center; font-weight:700; }
+.sev.positive { color:var(--good-text); } .sev.warning { color:#b27a00; } .sev.critical { color:var(--crit); } .sev.neutral { color:var(--muted); }
+.conf { font-size:12px; color:var(--muted); }
+
+.results { display:grid; grid-template-columns:1.1fr 1fr; gap:20px; }
+@media (max-width:1100px) { .results { grid-template-columns:1fr; } }
+.outcome { display:flex; align-items:center; gap:12px; margin:6px 0 14px; }
+.badge { display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; border:1px solid var(--border); font-weight:700; }
+.badge i { width:20px; height:20px; border-radius:50%; display:inline-grid; place-items:center; color:#fff; font-style:normal; font-size:13px; }
+.badge.APPROVE i { background:var(--good); } .badge.REFER i { background:var(--warn); color:#0b0b0b; } .badge.DECLINE i { background:var(--crit); }
+.hero { font-size:48px; font-weight:700; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.hero small { font-size:15px; color:var(--ink2); font-weight:500; margin-left:6px; }
+.meter { position:relative; height:12px; border-radius:6px; background:var(--grid); margin:22px 0 6px; }
+.meter .zone { position:absolute; top:0; bottom:0; border-right:2px solid var(--surface); }
+.meter .zone:first-child { border-radius:6px 0 0 6px; } .meter .zone:last-child { border:0; border-radius:0 6px 6px 0; }
+.meter .z1 { background:color-mix(in srgb, var(--good) 35%, var(--grid)); }
+.meter .z2 { background:color-mix(in srgb, var(--warn) 45%, var(--grid)); }
+.meter .z3 { background:color-mix(in srgb, var(--crit) 35%, var(--grid)); }
+.meter .pin { position:absolute; top:-6px; width:4px; height:24px; margin-left:-2px; border-radius:2px; background:var(--ink); transition:left .5s; }
+.zones { display:flex; font-size:11.5px; color:var(--muted); }
+.memo { font-size:14px; border-left:3px solid var(--axis); padding-left:12px; margin:14px 0 0; }
+.tag { font-size:11.5px; color:var(--muted); margin-top:6px; }
+
+.chart-row { display:grid; grid-template-columns:130px 1fr; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+.plot { position:relative; height:26px; }
+.plot::before { content:""; position:absolute; left:50%; top:-4px; bottom:-4px; width:1px; background:var(--axis); }
+.bar { position:absolute; top:3px; height:20px; outline:none; cursor:default; transition:width .45s; }
+.bar.lower { background:var(--lower); border-radius:4px 0 0 4px; right:50%; }
+.bar.raise { background:var(--raise); border-radius:0 4px 4px 0; left:50%; }
+.bar:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+.val { position:absolute; top:3px; line-height:20px; font-weight:600; font-variant-numeric:tabular-nums; font-size:13px; }
+.legend { display:flex; gap:16px; font-size:12.5px; color:var(--ink2); margin:10px 0 0; flex-wrap:wrap; }
+.legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
+.legend .l::before { background:var(--lower); } .legend .r::before { background:var(--raise); }
+.axis-note { display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted); margin-left:140px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; font-weight:600; color:var(--ink2); font-size:12px; padding:6px 6px 6px 0; border-bottom:1px solid var(--axis); }
+td { padding:7px 6px 7px 0; border-bottom:1px solid var(--grid); vertical-align:top; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pill { font-size:12px; font-weight:600; }
+.pill.yes { color:var(--crit); } .pill.no { color:var(--muted); font-weight:500; }
+.toggle { background:none; border:1px solid var(--border); color:var(--ink2); border-radius:6px; font:inherit; font-size:12px; padding:2px 8px; cursor:pointer; float:right; }
+#tip { position:fixed; pointer-events:none; z-index:10; background:var(--ink); color:var(--page); padding:8px 10px; border-radius:8px; font-size:12.5px; max-width:300px; display:none; box-shadow:0 4px 16px rgba(0,0,0,.25); }
+#tip b { display:block; margin-bottom:2px; }
+.empty { color:var(--muted); font-size:13px; padding:8px 0; }
+.err { color:var(--crit); font-size:13px; margin-top:8px; }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AgentLedger</h1>
+    <p>A multi-agent loan underwriting and fraud copilot. Four specialist AI agents each add or subtract risk, an underwriter agent combines the evidence, and this page shows exactly what each agent contributed to the decision.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="card" aria-label="Applicant">
+      <h2>Applicant</h2>
+      <p class="sub">Pick a fictional applicant or edit the details.</p>
+      <div class="samples" id="samples"></div>
+      <details><summary>Edit application details</summary><div class="fields" id="fields"></div></details>
+      <div class="field" style="margin-bottom:10px">
+        <label for="key">Anthropic API key (optional)</label>
+        <input type="password" id="key" autocomplete="off" placeholder="sk-ant-...">
+        <div class="hint">With a key, Claude writes the decision memo. Without one, a rule-based memo is used. The key is sent only with your request and never stored.</div>
+      </div>
+      <button class="run" id="run">Run underwriting agents</button>
+      <div class="err" id="err" hidden></div>
+    </aside>
+
+    <main class="stack">
+      <section class="card" aria-label="Agent pipeline">
+        <h2>Agent pipeline</h2>
+        <p class="sub">KYC runs first. Credit, fraud and compliance then run in parallel. The underwriter agent waits for all of them.</p>
+        <div class="pipeline" id="pipeline"></div>
+      </section>
+
+      <div class="results" id="results" hidden>
+        <section class="card" aria-label="Decision">
+          <h2>Decision</h2>
+          <div class="outcome"><span class="badge" id="badge"></span></div>
+          <div class="hero"><span id="score">0</span><small>/ 100 risk score (lower is safer)</small></div>
+          <div class="meter" id="meter" role="img" aria-label="Risk score meter">
+            <div class="zone z1" style="left:0;width:35%"></div>
+            <div class="zone z2" style="left:35%;width:25%"></div>
+            <div class="zone z3" style="left:60%;width:40%"></div>
+            <div class="pin" id="pin"></div>
+          </div>
+          <div class="zones"><span style="width:35%">Approve 0-35</span><span style="width:25%">Review 36-60</span><span style="width:40%">Decline 61-100</span></div>
+          <p class="memo" id="memo"></p>
+          <div class="tag" id="memotag"></div>
+          <div class="tag" id="offer"></div>
+        </section>
+
+        <section class="card" aria-label="Agent value">
+          <h2>What each agent was worth</h2>
+          <p class="sub">Estimated analyst time is an assumption for this demo, not a measurement.</p>
+          <table id="value"></table>
+        </section>
+      </div>
+
+      <section class="card" id="contrib" aria-label="Risk contribution by agent" hidden>
+        <button class="toggle" id="toggle">Show as table</button>
+        <h2>Who moved the risk score</h2>
+        <p class="sub">Every application starts at 50. Each agent adds or removes risk points. The bars below sum to the final score.</p>
+        <div id="chart"></div>
+        <div id="chartTable" hidden></div>
+        <div class="legend"><span class="l">Lowers risk (safer)</span><span class="r">Raises risk (riskier)</span></div>
+      </section>
+
+      <section class="card" id="abl" aria-label="Agent ablation" hidden>
+        <h2>Would the decision change without each agent?</h2>
+        <p class="sub">We re-run the decision policy with one agent removed. If the outcome flips, that agent was decisive.</p>
+        <table id="ablation"></table>
+      </section>
+    </main>
+  </div>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sign = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
+const SEV = { positive: "✓", neutral: "•", warning: "!", critical: "✕" };
+const OUTCOME = { APPROVE: ["✓", "Approve"], REFER: ["!", "Refer to human"], DECLINE: ["✕", "Decline"] };
+const RISK_AGENTS = ["kyc", "credit", "fraud", "compliance"];
+
+let samples = [], graph = null, current = null, results = {}, showTable = false;
+
+async function init() {
+  [samples, graph] = await Promise.all([fetch("/api/samples").then((r) => r.json()), fetch("/api/graph").then((r) => r.json())]);
+  const box = $("samples");
+  samples.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "sample"; b.dataset.id = s.id; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<b>${esc(s.title)}</b><span>${esc(s.blurb)}</span>`;
+    b.onclick = () => select(s.id);
+    box.appendChild(b);
+  });
+  select(samples[0].id);
+  buildPipeline();
+}
+
+function select(id) {
+  const s = samples.find((x) => x.id === id);
+  current = { ...s.application };
+  document.querySelectorAll(".sample").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === id)));
+  renderFields();
+}
+
+function renderFields() {
+  const f = $("fields"); f.innerHTML = "";
+  Object.entries(current).forEach(([k, v]) => {
+    const wrap = document.createElement("div");
+    const label = k.replace(/_/g, " ");
+    if (typeof v === "boolean") {
+      wrap.className = "field check";
+      wrap.innerHTML = `<input type="checkbox" id="f_${k}" ${v ? "checked" : ""}><label for="f_${k}">${esc(label)}</label>`;
+      wrap.querySelector("input").onchange = (e) => (current[k] = e.target.checked);
+    } else {
+      wrap.className = "field";
+      const type = typeof v === "number" ? "number" : "text";
+      wrap.innerHTML = `<label for="f_${k}">${esc(label)}</label><input type="${type}" id="f_${k}" step="any" value="${esc(v)}">`;
+      wrap.querySelector("input").oninput = (e) => (current[k] = type === "number" ? e.target.valueAsNumber : e.target.value);
+    }
+    f.appendChild(wrap);
+  });
+}
+
+function buildPipeline() {
+  const p = $("pipeline"); p.innerHTML = "";
+  const byId = Object.fromEntries(graph.agents.map((a) => [a.id, a]));
+  const names = ["Stage 1 · Verify", "Stage 2 · Assess in parallel", "Stage 3 · Decide"];
+  graph.stages.forEach((stage, i) => {
+    const col = document.createElement("div"); col.className = "col";
+    col.innerHTML = `<div class="col-label">${names[i]}</div>`;
+    stage.forEach((id) => {
+      const a = byId[id], el = document.createElement("div");
+      el.className = "agent"; el.id = "agent_" + id; el.dataset.state = "idle";
+      el.innerHTML = `<div class="agent-head"><div><b>${esc(a.name)}</b><div class="role">${esc(a.role)}</div></div><div class="status" id="st_${id}">Waiting</div></div><div id="body_${id}"></div>`;
+      col.appendChild(el);
+    });
+    p.appendChild(col);
+  });
+}
+
+function resetRun() {
+  results = {}; buildPipeline();
+  ["results", "contrib", "abl"].forEach((id) => ($(id).hidden = true));
+  $("err").hidden = true;
+}
+
+function agentStart(id) {
+  $("agent_" + id).dataset.state = "running";
+  $("st_" + id).innerHTML = '<span class="spin"></span>Working';
+}
+
+function agentDone(id, r) {
+  results[id] = r;
+  $("agent_" + id).dataset.state = "done";
+  const delta = RISK_AGENTS.includes(id)
+    ? `<span class="chip ${r.risk_delta < 0 ? "lower" : r.risk_delta > 0 ? "raise" : ""}">${sign(r.risk_delta)} risk</span>`
+    : `<span class="chip">decision</span>`;
+  $("st_" + id).innerHTML = delta;
+  const items = r.findings.map((f) => `<li><span class="sev ${f.severity}" aria-hidden="true">${SEV[f.severity]}</span><span>${esc(f.label)}</span>${RISK_AGENTS.includes(id) ? `<span class="d">${sign(f.delta)}</span>` : ""}</li>`).join("");
+  const stop = r.hard_stop ? `<div class="summary" style="color:var(--crit);font-weight:600">Hard stop: ${esc(r.hard_stop.reason)}</div>` : "";
+  $("body_" + id).innerHTML = `<div class="summary">${esc(r.summary)}</div>${stop}<div class="conf">Confidence ${Math.round(r.confidence * 100)}% · ${r.compute_ms} ms</div><ul>${items}</ul>`;
+  if (RISK_AGENTS.includes(id)) { $("contrib").hidden = false; renderChart(); }
+}
+
+function tipHtml(r) {
+  const top = [...r.findings].filter((f) => f.delta !== 0).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 3);
+  return `<b>${esc(r.name)}: ${sign(r.risk_delta)} points</b>${top.map((f) => `${esc(f.label)} (${sign(f.delta)})`).join("<br>")}`;
+}
+
+function renderChart() {
+  const rows = RISK_AGENTS.filter((a) => results[a]).map((a) => results[a]);
+  const max = Math.max(20, Math.ceil(Math.max(...rows.map((r) => Math.abs(r.risk_delta))) / 10) * 10);
+  $("chart").innerHTML = '<div class="axis-note"><span>← lowers risk</span><span>raises risk →</span></div>' + rows.map((r) => {
+    const w = (Math.abs(r.risk_delta) / max) * 50, cls = r.risk_delta < 0 ? "lower" : "raise";
+    const pos = r.risk_delta < 0 ? `right:calc(50% + ${w}% + 6px)` : `left:calc(50% + ${w}% + 6px)`;
+    const bar = r.risk_delta === 0 ? "" : `<div class="bar ${cls}" style="width:${w}%" tabindex="0" data-agent="${r.agent_id}" aria-label="${esc(r.name)} ${sign(r.risk_delta)} risk points"></div>`;
+    return `<div class="chart-row"><div>${esc(r.name)}</div><div class="plot">${bar}<span class="val" style="${pos}">${sign(r.risk_delta)}</span></div></div>`;
+  }).join("");
+  $("chartTable").innerHTML = `<table><tr><th>Agent</th><th class="num">Risk points</th><th class="num">Confidence</th></tr>${rows.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${sign(r.risk_delta)}</td><td class="num">${Math.round(r.confidence * 100)}%</td></tr>`).join("")}</table>`;
+  document.querySelectorAll(".bar").forEach((b) => {
+    const r = results[b.dataset.agent];
+    const show = (e) => { const t = $("tip"); t.innerHTML = tipHtml(r); t.style.display = "block"; const rc = b.getBoundingClientRect(); t.style.left = Math.min(innerWidth - 310, (e.clientX || rc.left) + 12) + "px"; t.style.top = (e.clientY || rc.bottom) + 12 + "px"; };
+    b.onmousemove = show; b.onfocus = show; b.onmouseleave = b.onblur = () => ($("tip").style.display = "none");
+  });
+}
+
+function complete(ev) {
+  const u = results.underwriter, m = u.metrics, d = m.decision;
+  $("results").hidden = false; $("abl").hidden = false;
+  const [icon, label] = OUTCOME[d.outcome];
+  $("badge").className = "badge " + d.outcome;
+  $("badge").innerHTML = `<i aria-hidden="true">${icon}</i>${label}`;
+  $("score").textContent = d.score;
+  $("pin").style.left = d.score + "%";
+  $("meter").setAttribute("aria-label", `Risk score ${d.score} of 100, outcome ${label}`);
+  const stops = d.hard_stops.length ? ` Hard stop: ${d.hard_stops.map(esc).join("; ")}.` : "";
+  $("memo").textContent = m.memo;
+  $("memotag").textContent = (u.used_llm ? "Memo written by Claude from the agents' findings." : "Rule-based memo." + (m.llm_error ? ` Claude call failed (${m.llm_error}); the decision is unaffected.` : " Add an API key for a Claude-written memo.")) + " The decision itself always comes from the deterministic policy." + (d.hard_stops.length ? stops : "");
+  $("offer").textContent = m.offer ? `Offer: $${m.offer.amount.toLocaleString()} over ${m.offer.term_months} months at ${m.offer.apr}% APR, about $${m.offer.monthly_payment.toLocaleString()} per month.` : "";
+
+  const all = graph.agents.map((a) => results[a.id]).filter(Boolean);
+  $("value").innerHTML = `<tr><th>Agent</th><th class="num">Compute</th><th class="num">Est. analyst</th></tr>` +
+    all.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.compute_ms} ms</td><td class="num">${r.manual_minutes} min</td></tr>`).join("") +
+    `<tr><td><b>Total</b></td><td class="num"><b>${ev.compute_ms_total} ms</b></td><td class="num"><b>${ev.manual_minutes_total} min</b></td></tr>`;
+
+  $("ablation").innerHTML = `<tr><th>Agent removed</th><th class="num">Score without</th><th>Decision without</th><th>Verdict</th></tr>` +
+    m.ablation.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.score_without}</td><td>${OUTCOME[r.outcome_without][1]}</td><td>${r.flips ? `<span class="pill yes">✕ Decisive: outcome changes</span>` : `<span class="pill no">• Not decisive</span>`}</td></tr>`).join("");
+}
+
+$("toggle").onclick = () => {
+  showTable = !showTable;
+  $("chart").hidden = showTable; $("chartTable").hidden = !showTable;
+  $("toggle").textContent = showTable ? "Show as chart" : "Show as table";
+};
+
+$("run").onclick = async () => {
+  resetRun();
+  const btn = $("run"); btn.disabled = true; btn.textContent = "Agents working...";
+  try {
+    const res = await fetch("/api/underwrite/stream", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ application: current, api_key: $("key").value.trim() || null }),
+    });
+    if (!res.ok) throw new Error(res.status === 422 ? "Some application fields are invalid. Check the edited values." : "Request failed (" + res.status + ")");
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+        if (!line.startsWith("data:")) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === "agent_start") agentStart(ev.agent);
+        else if (ev.type === "agent_done") agentDone(ev.agent, ev.result);
+        else if (ev.type === "complete") complete(ev);
+        else if (ev.type === "error") throw new Error(ev.message);
+      }
+    }
+  } catch (e) {
+    $("err").textContent = e.message; $("err").hidden = false;
+  } finally {
+    btn.disabled = false; btn.textContent = "Run underwriting agents";
+  }
+};
+
+init();
+</script>
+</body>
+</html>
