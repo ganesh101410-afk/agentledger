@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import time
 from collections.abc import AsyncIterator
@@ -12,7 +13,10 @@ from .agents.credit import CreditRiskAgent
 from .agents.fraud import FraudAgent
 from .agents.kyc import KYCAgent
 from .agents.underwriter import UnderwriterAgent
+from .config import get_settings
 from .models import Application, Context
+
+logger = logging.getLogger("agentledger.pipeline")
 
 AGENTS = {a.id: a for a in (KYCAgent(), CreditRiskAgent(), FraudAgent(), ComplianceAgent(), UnderwriterAgent())}
 STAGES = [["kyc"], ["credit", "fraud", "compliance"], ["underwriter"]]
@@ -41,9 +45,10 @@ async def run_pipeline(app: Application, api_key: str | None = None, pacing: boo
 
     async def driver() -> None:
         try:
-            for index, stage in enumerate(STAGES):
-                await queue.put({"type": "stage_start", "stage": index, "agents": stage})
-                await asyncio.gather(*(run_agent(a) for a in stage))
+            async with asyncio.timeout(get_settings().pipeline_timeout):
+                for index, stage in enumerate(STAGES):
+                    await queue.put({"type": "stage_start", "stage": index, "agents": stage})
+                    await asyncio.gather(*(run_agent(a) for a in stage))
             final = ctx.results["underwriter"]
             await queue.put(
                 {
@@ -54,8 +59,12 @@ async def run_pipeline(app: Application, api_key: str | None = None, pacing: boo
                     "manual_minutes_total": sum(r.manual_minutes for r in ctx.results.values()),
                 }
             )
-        except Exception as exc:
-            await queue.put({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+        except TimeoutError:
+            logger.warning("pipeline timed out")
+            await queue.put({"type": "error", "message": "The analysis timed out. Please try again."})
+        except Exception:
+            logger.exception("pipeline failed")
+            await queue.put({"type": "error", "message": "The analysis failed. Please try again."})
         finally:
             await queue.put(None)
 

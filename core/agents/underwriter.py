@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from .. import llm
+from ..config import get_settings
 from ..decision import BASE_SCORE, RISK_AGENTS, ablation, decide
 from ..models import AgentResult, Application, Context, Finding
 from .base import Agent
@@ -34,7 +36,7 @@ class UnderwriterAgent(Agent):
             key=lambda x: abs(x[1].delta),
             reverse=True,
         )[:4]
-        reasons = [{"agent": n, "label": f.label, "detail": f.detail, "delta": f.delta} for n, f in ranked]
+        reasons: list[dict[str, Any]] = [{"agent": n, "label": f.label, "detail": f.detail, "delta": f.delta} for n, f in ranked]
         decisive = [row["name"] for row in flips if row["flips"]]
 
         credit = ctx.results.get("credit")
@@ -49,7 +51,8 @@ class UnderwriterAgent(Agent):
 
         template = self._template_memo(app, decision, reasons, decisive)
         memo, used_llm, llm_error = template, False, None
-        api_key = ctx.api_key or os.getenv("ANTHROPIC_API_KEY")
+        server_key = os.getenv("ANTHROPIC_API_KEY") if get_settings().server_llm else None
+        api_key = ctx.api_key or server_key
         if api_key:
             payload = {
                 "applicant": app.applicant_name,

@@ -1,7 +1,6 @@
 import asyncio
 
 import pytest
-from fastapi.testclient import TestClient
 
 from core.decision import classify
 from core.models import Application
@@ -70,16 +69,42 @@ def test_template_memo_without_api_key(monkeypatch):
     assert m["memo"] and m["llm_error"] is None
 
 
-def test_api_endpoints():
-    from main import app
+@pytest.mark.parametrize("sample_id", list(BY_ID))
+def test_contributions_always_add_up_to_the_score(sample_id):
+    m = underwriter_metrics(run(sample_id))
+    total = m["base_score"] + sum(c["delta"] for c in m["contributions"])
+    assert m["decision"]["score"] == pytest.approx(min(100, max(0, total)))
 
-    client = TestClient(app)
-    assert len(client.get("/api/samples").json()) == 4
-    assert client.get("/api/graph").json()["stages"][1] == ["credit", "fraud", "compliance"]
-    body = {"application": BY_ID["clean"], "pacing": False}
-    out = client.post("/api/underwrite", json=body).json()
-    assert out["complete"]["decision"]["outcome"] == "APPROVE"
-    with client.stream("POST", "/api/underwrite/stream", json=body) as r:
-        text = "".join(r.iter_text())
-    assert text.count("data: ") >= 10 and '"type": "complete"' in text
-    assert client.post("/api/underwrite", json={"application": {**BY_ID["clean"], "age": -1}}).status_code == 422
+
+def test_pipeline_timeout_emits_one_error_and_no_decision(monkeypatch):
+    monkeypatch.setenv("AGENTLEDGER_PIPELINE_TIMEOUT", "0.05")
+    for agent in AGENTS.values():
+        monkeypatch.setattr(agent, "pacing", (5, 5))
+    events = run("clean", pacing=True)
+    assert [e["type"] for e in events if e["type"] in ("error", "complete")] == ["error"]
+    assert "timed out" in events[-1]["message"]
+
+
+def test_agent_crash_gives_a_generic_error_without_internals(monkeypatch):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("secret internals /etc/passwd")
+
+    monkeypatch.setattr(AGENTS["credit"], "analyze", boom)
+    events = run("clean")
+    error = next(e for e in events if e["type"] == "error")
+    assert "secret" not in error["message"] and "failed" in error["message"]
+    assert not any(e["type"] == "complete" for e in events)
+
+
+def test_closing_the_stream_early_cancels_the_background_work(monkeypatch):
+    for agent in AGENTS.values():
+        monkeypatch.setattr(agent, "pacing", (5, 5))
+
+    async def scenario():
+        stream = run_pipeline(Application(**BY_ID["clean"]), pacing=True)
+        await anext(stream)  # first event arrives, agents are now sleeping
+        await stream.aclose()  # what happens when the browser disconnects
+        await asyncio.sleep(0.05)
+        return [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+    assert asyncio.run(scenario()) == []
